@@ -1,0 +1,14 @@
+{
+  "name": "coderush",
+  "version": "1.0.0",
+  "description": "Retos de lógica de programación gamificados en JavaScript, TypeScript y Python",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "verify": "node scripts/verify.js"
+  },
+  "engines": {
+    "node": ">=23.6"
+  }
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodeRush</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' fill='%23ff5a1f' stroke='%2317140f' stroke-width='2'/%3E%3Cpath d='M9 22h14' stroke='%2317140f' stroke-width='3'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/" aria-label="Inicio">
+      <span class="brand-box">CR</span><span class="brand-word">coderush</span>
+    </a>
+
+    <button class="hud-level" id="player" title="Ver estadísticas">
+      <span class="lvl"><small>NV</small><b id="levelBadge">1</b></span>
+      <span class="lvl-body">
+        <span class="lvl-meta"><span id="levelTitle">Novato</span><span id="xpText">0/50 XP</span></span>
+        <span class="xp-bar"><span class="xp-fill" id="xpFill"></span></span>
+      </span>
+    </button>
+
+    <div class="hud">
+      <div class="hud-cell combo" id="combo" hidden title="Combo: retos resueltos seguidos sin fallar un envío">
+        <small>Combo</small><b>×<span id="comboVal">1.0</span></b>
+      </div>
+      <button class="hud-cell streak" id="streak" title="Racha de días">
+        <small>Racha</small><b><span id="streakIcon"></span><span id="streakVal">0</span></b>
+      </button>
+      <div class="hud-cell goal" id="goal" title="Meta diaria">
+        <small>Hoy</small><span class="goal-boxes" id="goalBoxes"></span>
+      </div>
+      <button class="hud-cell" id="btnAchievements" title="Logros">
+        <small>Logros</small><b id="achCount">0</b>
+      </button>
+      <button class="hud-icon" id="btnStats" title="Estadísticas" aria-label="Estadísticas"></button>
+      <button class="hud-icon" id="btnSound" title="Sonido" aria-label="Sonido"></button>
+    </div>
+  </header>
+
+  <main id="app"><div class="loading">Cargando retos…</div></main>
+
+  <div id="modalRoot"></div>
+  <div id="toasts" aria-live="polite"></div>
+  <canvas id="fx"></canvas>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
