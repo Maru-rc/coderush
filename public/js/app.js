@@ -1,5 +1,7 @@
 import * as game from './game.js';
-import { LANGS, DIFFICULTY, DAILY_GOAL, ACHIEVEMENTS, levelInfo, state } from './game.js';
+import { LANGS, DIFFICULTY, DAILY_GOAL, ACHIEVEMENTS, LESSON_XP, levelInfo, state } from './game.js';
+import { LESSONS, lessonById, lessonsForChallenge, pick } from './lessons.js';
+import { highlightLines } from './highlight.js';
 import { createEditor } from './editor.js';
 import { explain } from './errors.js';
 import { icon } from './icons.js';
@@ -127,9 +129,14 @@ function teardown() {
 function route() {
   teardown();
   closeModal();
-  const m = location.hash.match(/^#\/reto\/([\w-]+)/);
-  if (m) renderChallenge(m[1]);
+  const hash = location.hash;
+  let m;
+  if ((m = hash.match(/^#\/reto\/([\w-]+)/))) renderChallenge(m[1]);
+  else if ((m = hash.match(/^#\/aprender\/([\w-]+)/))) renderLesson(TRACKS.aprender, m[1]);
+  else if (/^#\/aprender\/?$/.test(hash)) renderLearn();
   else renderHome();
+  const section = hash.startsWith('#/aprender') ? 'aprender' : 'retos';
+  document.querySelectorAll('.topnav a').forEach((a) => a.classList.toggle('on', a.dataset.nav === section));
   scrollTo(0, 0);
 }
 
@@ -151,7 +158,7 @@ function motivation() {
   const streak = game.streakInfo();
   const goal = game.todayCount();
   if (streak.atRisk) return `Tu racha de <b>${dias(streak.current)}</b> se pierde a medianoche. Un reto basta para salvarla.`;
-  if (game.uniqueSolved() === 0) return 'Empieza por el Nº 01. Tu primer reto desbloquea tu primer logro.';
+  if (game.uniqueSolved() === 0) return 'Empieza por el Nº 01: tu primer reto desbloquea tu primer logro. ¿Prefieres repasar la teoría antes? Pasa por <a href="#/aprender">Aprender</a>.';
   if (goal < DAILY_GOAL) {
     const left = DAILY_GOAL - goal;
     return `Te ${left === 1 ? 'falta <b>1 reto</b>' : `faltan <b>${left} retos</b>`} para la meta diaria (+30 XP).`;
@@ -161,6 +168,20 @@ function motivation() {
 
 function seg(id, options, current, attr = 'v') {
   return `<div class="seg" id="${id}">${options.map(([v, l]) => `<button class="${v === current ? 'on' : ''}" data-${attr}="${v}">${l}</button>`).join('')}</div>`;
+}
+
+const langSeg = () => seg('langPick', Object.entries(LANGS).map(([k, l]) => [k, l.label]), state.settings.lang, 'lang');
+
+function bindLangPick(onChange) {
+  $('#langPick').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-lang]');
+    if (!b || b.dataset.lang === state.settings.lang) return;
+    sfx.click();
+    state.settings.lang = b.dataset.lang;
+    game.save();
+    $('#langPick').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+    onChange();
+  });
 }
 
 function langMarks(id) {
@@ -205,7 +226,7 @@ function renderHome() {
       </div>
       <div class="board-lang">
         <div class="label">Lenguaje</div>
-        ${seg('langPick', Object.entries(LANGS).map(([k, l]) => [k, l.label]), lang, 'lang')}
+        ${langSeg()}
       </div>
     </header>
 
@@ -258,14 +279,7 @@ function renderHome() {
 
   renderTiers();
 
-  $('#langPick').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-lang]');
-    if (!b) return;
-    sfx.click();
-    state.settings.lang = b.dataset.lang;
-    game.save();
-    renderHome();
-  });
+  bindLangPick(renderHome);
   for (const [id, key] of [['#fDiff', 'difficulty'], ['#fStatus', 'status']]) {
     $(id).addEventListener('click', (e) => {
       const b = e.target.closest('[data-v]');
@@ -323,6 +337,15 @@ function renderTiers() {
   $('#tiers').innerHTML = html || '<p class="empty">Ningún reto coincide con esos filtros.</p>';
 }
 
+function errorBox({ heading, line, ex, text, original, compact }) {
+  return `<div class="errbox ${compact ? 'compact' : ''}">
+    ${heading ? `<div class="errbox-head"><span class="errbox-mark">${icon.x}</span><b>${heading}</b>${line ? `<button class="line-link" data-line="${line}">Ir a la línea ${line} ${icon.arrowRight}</button>` : ''}</div>` : ''}
+    ${ex ? `<p class="errbox-title">${ex.title}</p><p class="errbox-tip">${ex.tip}</p>` : ''}
+    ${text ? `<p class="errbox-title">${text}</p>` : ''}
+    ${original ? `<div class="errbox-orig"><span class="label">Mensaje original</span><pre>${esc(original)}</pre></div>` : ''}
+  </div>`;
+}
+
 // ───────────── Vista: reto ─────────────
 async function renderChallenge(id) {
   const c = game.challenges.find((x) => x.id === id);
@@ -377,6 +400,7 @@ async function renderChallenge(id) {
     const firstTime = langsDone.length === 0;
     const baseXp = firstTime ? c.xp : Math.round(c.xp / 2);
     const solvedHere = game.isSolved(c.id, lang);
+    const concepts = lessonsForChallenge(c.id);
     brief.innerHTML = `
       <div class="brief-top">
         <a href="#/" class="back">${icon.arrowLeft} Tablero</a>
@@ -395,6 +419,13 @@ async function renderChallenge(id) {
           : `<mark>+${baseXp * (daily ? 2 : 1)} XP</mark> base${firstTime ? '' : ' (nuevo lenguaje)'}. Bonus por primer intento, sin pistas y rapidez.`}
       </p>
       <div class="desc">${c.description}</div>
+
+      <section class="sec">
+        <h4 class="label">Aprende el concepto</h4>
+        <div class="concepts">
+          ${concepts.map((l) => `<a class="concept ${game.lessonDone(l.id) ? 'done' : ''}" href="#/aprender/${l.id}" title="Lección ${lessonNum(l)}">${game.lessonDone(l.id) ? icon.check : icon.book}<span>${esc(l.title)}</span></a>`).join('')}
+        </div>
+      </section>
 
       <section class="sec">
         <h4 class="label">Firma</h4>
@@ -529,7 +560,7 @@ async function renderChallenge(id) {
     const btns = [$('#btnRun'), $('#btnSubmit')];
     btns.forEach((b) => (b.disabled = true));
     const activeBtn = mode === 'run' ? btns[0] : btns[1];
-    activeBtn.classList.add('loading');
+    activeBtn.classList.add('is-loading');
     results.innerHTML = `<div class="running"><span class="spinner"></span>${mode === 'run' ? 'Ejecutando los ejemplos…' : 'Validando con todos los tests…'}</div>`;
     // Enviar suena a "carga" hasta que llegan los resultados (con un mínimo para crear suspense).
     const stopCharge = mode === 'submit' ? sfx.submitStart() : (sfx.runStart(), null);
@@ -549,17 +580,8 @@ async function renderChallenge(id) {
       stopCharge?.();
       busy = false;
       btns.forEach((b) => (b.disabled = false));
-      activeBtn.classList.remove('loading');
+      activeBtn.classList.remove('is-loading');
     }
-  }
-
-  function errorBox({ heading, line, ex, text, original, compact }) {
-    return `<div class="errbox ${compact ? 'compact' : ''}">
-      ${heading ? `<div class="errbox-head"><span class="errbox-mark">${icon.x}</span><b>${heading}</b>${line ? `<button class="line-link" data-line="${line}">Ir a la línea ${line} ${icon.arrowRight}</button>` : ''}</div>` : ''}
-      ${ex ? `<p class="errbox-title">${ex.title}</p><p class="errbox-tip">${ex.tip}</p>` : ''}
-      ${text ? `<p class="errbox-title">${text}</p>` : ''}
-      ${original ? `<div class="errbox-orig"><span class="label">Mensaje original</span><pre>${esc(original)}</pre></div>` : ''}
-    </div>`;
   }
 
   function fatalHtml(res) {
@@ -678,7 +700,7 @@ async function renderChallenge(id) {
         updateHud({ animate: true });
         return;
       }
-      await celebrate(reward, c, lang);
+      await celebrate(reward, challengeTicket(c, lang));
       renderBrief();
       tickTimer();
       return;
@@ -704,12 +726,292 @@ async function renderChallenge(id) {
   }
 }
 
+// ───────────── Vista: academia ─────────────
+// Vista de lecciones genérica: cada ruta de aprendizaje define su lista, sus enlaces y su práctica.
+const TRACKS = {
+  aprender: {
+    list: LESSONS,
+    home: '#/aprender',
+    homeLabel: 'Aprender',
+    href: (l) => `#/aprender/${l.id}`,
+    lang: () => state.settings.lang,
+    practice: (l) => ({ done: l.challenges.filter((id) => game.isSolved(id)).length, total: l.challenges.length, unit: 'retos' }),
+    practiceHtml(l, lang) {
+      const list = game.challenges.filter((c) => l.challenges.includes(c.id));
+      return {
+        html: list.map((c) => tileHtml(c, lang)).join(''),
+        count: `${list.filter((c) => game.isSolved(c.id, lang)).length}/${list.length} en ${LANGS[lang].label}`,
+      };
+    },
+  },
+};
+
+const lessonNum = (l, track = TRACKS.aprender) => pad(track.list.indexOf(l) + 1);
+const nextLesson = (track) => track.list.find((l) => !game.lessonDone(l.id));
+const CODE_LABELS = { shell: 'Terminal', json: 'JSON' };
+
+function codeBlock(code, lang, out, file) {
+  const lines = highlightLines(code, lang).map((l) => `<span class="line">${l}</span>`).join('');
+  const label = file ?? LANGS[lang]?.label ?? CODE_LABELS[lang] ?? lang;
+  return `<figure class="codeblock">
+    <figcaption class="codeblock-head">${LANGS[lang] ? `<i class="lang-dot bg-${lang}"></i>` : ''}${esc(label)}</figcaption>
+    <pre class="code"><code>${lines}</code></pre>
+    ${out != null ? `<div class="codeblock-out"><div class="codeblock-out-head">${icon.arrowRight} Salida</div><pre>${esc(out)}</pre></div>` : ''}
+  </figure>`;
+}
+
+function lessonCard(l, track) {
+  const done = game.lessonDone(l.id);
+  const upNext = nextLesson(track) === l;
+  const p = track.practice(l);
+  return `<a class="lcard ${done ? 'done' : ''} ${upNext ? 'up-next' : ''}" href="${track.href(l)}">
+    <div class="tile-top"><span class="tile-num">${lessonNum(l, track)}</span><span class="tile-xp">${done ? icon.check : `+${LESSON_XP} XP`}</span></div>
+    ${upNext ? '<span class="tile-flag">Siguiente</span>' : ''}
+    <h3>${esc(l.title)}</h3>
+    <p>${esc(l.summary)}</p>
+    <div class="lcard-foot">${p.total
+      ? `<span>${p.done}/${p.total} ${p.unit}</span><span class="meter inline"><i style="width:${(p.done / p.total) * 100}%"></i></span>`
+      : '<span>Solo teoría</span>'}</div>
+  </a>`;
+}
+
+function nextLessonCard(track) {
+  const next = nextLesson(track);
+  if (!next) return '';
+  const started = track.list.some((l) => game.lessonDone(l.id));
+  return `
+    <a class="learn-next" href="${track.href(next)}">
+      <span class="learn-next-num">${lessonNum(next, track)}</span>
+      <span class="learn-next-main">
+        <span class="label">${started ? 'Siguiente lección' : 'Empieza por aquí'} · lección ${lessonNum(next, track)} de ${track.list.length}</span>
+        <b>${esc(next.title)}</b>
+        <span class="learn-next-sum">${esc(next.summary)}</span>
+      </span>
+      <span class="btn primary">${started ? 'Continuar' : 'Empezar'} lección ${icon.arrowRight}</span>
+    </a>`;
+}
+
+function renderLearn() {
+  const track = TRACKS.aprender;
+  const done = game.lessonsDone();
+  app.innerHTML = `
+  <section class="home learn">
+    <header class="board-head">
+      <div>
+        <div class="label">Academia · ${LANGS[state.settings.lang].label}</div>
+        <h1>Aprender <span class="h-count">${pad(done)}/${LESSONS.length}</span></h1>
+        <p class="lead">${nextLesson(track)
+          ? `Cada lección explica un concepto con ejemplos en tu lenguaje y termina con un quiz que da <b>+${LESSON_XP} XP</b>. Después, practica con sus retos.`
+          : 'Completaste todas las lecciones. Puedes repasarlas cuando quieras: el quiz queda como práctica libre.'}</p>
+      </div>
+      <div class="board-lang">
+        <div class="label">Lenguaje de los ejemplos</div>
+        ${langSeg()}
+      </div>
+    </header>
+    ${nextLessonCard(track)}
+    <div class="lesson-grid">${LESSONS.map((l) => lessonCard(l, track)).join('')}</div>
+  </section>`;
+  bindLangPick(renderLearn);
+}
+
+function renderLesson(track, id) {
+  const l = track.list.find((x) => x.id === id);
+  if (!l) {
+    toast({ icon: '?', title: 'Esa lección no existe', text: 'Te llevamos a la lista de lecciones.', kind: 'bad' });
+    location.hash = track.home;
+    return;
+  }
+  const idx = track.list.indexOf(l);
+  const prev = track.list[idx - 1];
+  const next = track.list[idx + 1];
+  const fixedLang = track.fixedLang; // las rutas con un solo lenguaje no muestran el selector
+  let answers = l.quiz.map(() => null);
+  let checked = false;
+  let result = null;
+
+  app.innerHTML = `
+  <section class="lesson">
+    <div class="lesson-top">
+      <a href="${track.home}" class="back">${icon.arrowLeft} ${track.homeLabel}</a>
+      ${fixedLang ? `<span class="tag">${fixedLang}</span>` : langSeg()}
+    </div>
+    <header class="lesson-head">
+      <div class="label">${track.kicker ?? ''}Lección ${lessonNum(l, track)} de ${track.list.length}</div>
+      <h1>${esc(l.title)}</h1>
+      <p class="lead">${esc(l.summary)}</p>
+      <p class="reward-line" id="lessonStatus"></p>
+    </header>
+    <div id="lessonBody"></div>
+    <section class="quiz" id="quiz"></section>
+    <section class="practice">
+      <header class="tier-head"><h2>Practica</h2><span class="label" id="practiceCount"></span></header>
+      <div class="grid" id="practiceGrid"></div>
+    </section>
+    <nav class="lesson-nav">
+      ${prev ? `<a class="btn" href="${track.href(prev)}">${icon.arrowLeft} ${lessonNum(prev, track)} · ${esc(prev.title)}</a>` : '<span></span>'}
+      ${next ? `<a class="btn" href="${track.href(next)}">${lessonNum(next, track)} · ${esc(next.title)} ${icon.arrowRight}</a>` : `<a class="btn" href="${track.home}">Todas las lecciones</a>`}
+    </nav>
+  </section>`;
+
+  function renderStatus() {
+    const el = $('#lessonStatus');
+    const done = game.lessonDone(l.id);
+    el.classList.toggle('done', done);
+    el.innerHTML = done
+      ? `${icon.check} Lección completada. El quiz queda como práctica libre.`
+      : `<mark>+${LESSON_XP} XP</mark> al aprobar el quiz del final, +10 si aciertas todo a la primera.`;
+  }
+
+  function renderBody() {
+    const lang = track.lang();
+    $('#lessonBody').innerHTML = l.sections
+      .map((s, i) => `
+      <article class="lsec">
+        <h2><span class="lsec-n">${pad(i + 1)}</span>${esc(s.title)}</h2>
+        <p class="ltext">${s.text}</p>
+        ${codeBlock(pick(s.code, lang), s.lang ?? lang, pick(s.out, lang), s.file)}
+      </article>`)
+      .join('');
+  }
+
+  function renderPractice() {
+    const { html, count } = track.practiceHtml(l, track.lang());
+    $('#practiceGrid').innerHTML = html;
+    $('#practiceCount').textContent = count;
+  }
+
+  function quizMessage() {
+    if (!checked) {
+      const left = answers.filter((a) => a === null).length;
+      return left ? `Responde ${left === 1 ? 'la pregunta que falta' : `las ${left} preguntas`} y pulsa Comprobar.` : 'Listo para comprobar.';
+    }
+    const right = answers.filter((a, i) => a === l.quiz[i].answer).length;
+    if (!result.passed) return `<b>${right}/${l.quiz.length} correctas.</b> Lee las explicaciones e inténtalo de nuevo.`;
+    if (result.repeat) return '<b>¡Todo correcto!</b> Ya tenías esta lección, así que no suma XP.';
+    return `<b>¡Lección completada!</b> +${result.gained} XP`;
+  }
+
+  function renderQuiz() {
+    const lang = track.lang();
+    const answered = answers.every((a) => a !== null);
+    $('#quiz').innerHTML = `
+      <header class="quiz-head">
+        <h2>Mini-quiz</h2>
+        <span class="label">${game.lessonDone(l.id) ? 'Práctica libre' : `+${LESSON_XP} XP al aprobar`}</span>
+      </header>
+      <ol class="qs">
+        ${l.quiz.map((q, i) => {
+          const picked = answers[i];
+          const ok = picked === q.answer;
+          return `<li class="q ${checked ? (ok ? 'right' : 'wrong') : ''}">
+            <p class="q-text"><span class="q-n">${i + 1}</span><span>${q.q}</span></p>
+            ${q.code ? codeBlock(pick(q.code, lang), lang) : ''}
+            <div class="opts">
+              ${q.options.map((o, j) => {
+                const cls = ['opt', picked === j && 'picked', checked && j === q.answer && 'answer', checked && picked === j && !ok && 'miss'].filter(Boolean).join(' ');
+                return `<button class="${cls}" data-q="${i}" data-o="${j}" ${checked ? 'disabled' : ''}><span class="opt-key">${'ABCD'[j]}</span><span>${o}</span></button>`;
+              }).join('')}
+            </div>
+            ${checked ? `<p class="why"><b>${ok ? 'Correcto.' : 'Incorrecto.'}</b> ${q.why}</p>` : ''}
+          </li>`;
+        }).join('')}
+      </ol>
+      ${result?.passed && !result.repeat ? `<ul class="r-lines quiz-receipt">${result.lines.map((x) => `<li class="${x.achievement ? 'ach' : ''}"><span>${esc(x.label)}</span><i></i><b>+${x.add}</b></li>`).join('')}</ul>` : ''}
+      <div class="quiz-foot">
+        <span class="quiz-msg">${quizMessage()}</span>
+        <span class="quiz-btns">
+          ${checked
+            ? `<button class="btn ${result.passed ? 'small' : ''}" id="btnRetry">${icon.reset} ${result.passed ? 'Repetir' : 'Intentar de nuevo'}</button>`
+            : `<button class="btn primary" id="btnCheck" ${answered ? '' : 'disabled'}>Comprobar ${icon.arrowRight}</button>`}
+          ${checked && result.passed ? (next
+            ? `<a class="btn primary" href="${track.href(next)}">Siguiente lección ${icon.arrowRight}</a>`
+            : `<a class="btn primary" href="${track.home}">Todas las lecciones</a>`) : ''}
+        </span>
+      </div>`;
+  }
+
+  async function checkQuiz() {
+    checked = true;
+    const passed = answers.every((a, i) => a === l.quiz[i].answer);
+    result = game.recordQuiz(l.id, passed);
+    renderQuiz();
+    if (!passed) {
+      sfx.fail();
+      shake($('#quiz'));
+      return;
+    }
+    if (result.repeat) {
+      sfx.runPass();
+      confettiFrom($('#quiz .quiz-foot'), { count: 40, power: 0.6 });
+      return;
+    }
+    sfx.success();
+    confetti({ count: 120, power: 1 });
+    renderStatus();
+    updateHud({ animate: true });
+    floatFrom($('#xpFill'), `+${result.gained} XP`);
+    for (const a of result.achievements) {
+      toast({ icon: a.mark, title: `Logro: ${a.name}`, text: `${a.desc} · +20 XP`, kind: 'gold' });
+      await wait(250);
+    }
+    if (result.levelAfter > result.levelBefore) {
+      await wait(400);
+      showLevelUp(result.levelAfter);
+    }
+  }
+
+  $('#quiz').addEventListener('click', (e) => {
+    const opt = e.target.closest('[data-o]');
+    if (opt && !checked) {
+      sfx.click();
+      answers[Number(opt.dataset.q)] = Number(opt.dataset.o);
+      renderQuiz();
+    } else if (e.target.closest('#btnCheck')) {
+      checkQuiz();
+    } else if (e.target.closest('#btnRetry')) {
+      sfx.click();
+      // Tras un fallo se conservan los aciertos; tras aprobar se empieza de cero.
+      answers = result.passed ? answers.map(() => null) : answers.map((a, i) => (a === l.quiz[i].answer ? a : null));
+      checked = false;
+      result = null;
+      renderQuiz();
+    }
+  });
+
+  if (!fixedLang) {
+    bindLangPick(() => {
+      renderBody();
+      renderQuiz();
+      renderPractice();
+    });
+  }
+  renderStatus();
+  renderBody();
+  renderQuiz();
+  renderPractice();
+}
+
 // ───────────── Celebración: el ticket ─────────────
-async function celebrate(r, c, lang) {
-  sfx.success();
-  confetti({ count: 150, power: 1.1 });
+function challengeTicket(c, lang) {
   const other = Object.keys(LANGS).find((k) => !game.isSolved(c.id, k));
   const next = game.nextChallenge(lang, c.id);
+  return {
+    label: 'Reto superado',
+    title: c.title,
+    sub: `Nº ${numOf(c)} · ${LANGS[lang].label}`,
+    combo: true,
+    secondary: other
+      ? { label: `Resolver en ${LANGS[other].label}`, run: () => { closeModal(); state.settings.lang = other; route(); } }
+      : { label: 'Tablero', href: '#/' },
+    primary: next ? { label: 'Siguiente reto', href: `#/reto/${next.id}` } : null,
+  };
+}
+
+// ticket: { label, title, sub, combo?, secondary: { label, href | run }, primary?: { label, href } }
+async function celebrate(r, ticket) {
+  sfx.success();
+  confetti({ count: 150, power: 1.1 });
   const before = levelInfo(r.xpBefore);
   const now = new Date();
   const stamp = `${pad(now.getDate())}.${pad(now.getMonth() + 1)} · ${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -717,9 +1019,9 @@ async function celebrate(r, c, lang) {
   openModal(`
     <div class="modal ticket ${r.crit ? 'crit' : ''}">
       <div class="ticket-head">
-        <div class="ticket-row"><span class="label">Reto superado</span><span class="label">${stamp}</span></div>
-        <h2>${esc(c.title)}</h2>
-        <div class="ticket-row"><span>Nº ${numOf(c)} · ${LANGS[lang].label}</span>${r.crit ? '<span class="crit-stamp">Crítico ×2</span>' : ''}</div>
+        <div class="ticket-row"><span class="label">${esc(ticket.label)}</span><span class="label">${stamp}</span></div>
+        <h2>${esc(ticket.title)}</h2>
+        <div class="ticket-row"><span>${esc(ticket.sub)}</span>${r.crit ? '<span class="crit-stamp">Crítico ×2</span>' : ''}</div>
       </div>
       <div class="ticket-body">
         <ul class="r-lines" id="rLines"></ul>
@@ -730,25 +1032,18 @@ async function celebrate(r, c, lang) {
         </div>
         <div class="r-meta">
           <span>Racha <b>${r.streak}</b>${r.streakUp ? ' <em>+1</em>' : ''}</span>
-          <span>Combo <b>×${comboMult(r.combo)}</b></span>
+          ${ticket.combo ? `<span>Combo <b>×${comboMult(r.combo)}</b></span>` : ''}
           <span>Hoy <b>${Math.min(game.todayCount(), DAILY_GOAL)}/${DAILY_GOAL}</b></span>
         </div>
         <div class="modal-actions">
-          ${other ? `<button class="btn" data-act="lang" data-lang="${other}">Resolver en ${LANGS[other].label}</button>` : '<a class="btn" href="#/">Tablero</a>'}
-          ${next ? `<button class="btn primary" data-act="next" autofocus>Siguiente reto ${icon.arrowRight} <kbd>↵</kbd></button>` : ''}
+          ${ticket.secondary.href ? `<a class="btn" href="${ticket.secondary.href}">${esc(ticket.secondary.label)}</a>` : `<button class="btn" data-act="secondary">${esc(ticket.secondary.label)}</button>`}
+          ${ticket.primary ? `<a class="btn primary" href="${ticket.primary.href}" data-act="next" autofocus>${esc(ticket.primary.label)} ${icon.arrowRight} <kbd>↵</kbd></a>` : ''}
         </div>
       </div>
     </div>`);
 
   const modal = $('#modalRoot');
-  modal.querySelector('[data-act="next"]')?.addEventListener('click', () => {
-    location.hash = `#/reto/${next.id}`;
-  });
-  modal.querySelector('[data-act="lang"]')?.addEventListener('click', (e) => {
-    closeModal();
-    state.settings.lang = e.currentTarget.dataset.lang;
-    route();
-  });
+  modal.querySelector('[data-act="secondary"]')?.addEventListener('click', ticket.secondary.run);
 
   // Líneas del recibo, una a una.
   const linesEl = $('#rLines');
@@ -948,6 +1243,8 @@ function showStats() {
 // ───────────── Arranque ─────────────
 $('#streakIcon').innerHTML = icon.flame;
 $('#btnStats').innerHTML = icon.chart;
+$('#navRetosIco').innerHTML = icon.grid;
+$('#navAprenderIco').innerHTML = icon.book;
 $('#btnAchievements').addEventListener('click', () => (sfx.click(), showAchievements()));
 $('#btnStats').addEventListener('click', () => (sfx.click(), showStats()));
 $('#btnSound').addEventListener('click', () => {

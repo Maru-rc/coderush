@@ -1,4 +1,5 @@
-// Motor de progresión: XP, niveles, rachas, combos, logros, meta diaria y desbloqueos.
+// Motor de progresión: XP, niveles, rachas, combos, logros, meta diaria, desbloqueos y lecciones.
+import { LESSONS } from './lessons.js';
 
 export const LANGS = {
   javascript: { label: 'JavaScript', short: 'JS', monaco: 'javascript' },
@@ -15,6 +16,8 @@ export const DIFFICULTY = {
 export const DAILY_GOAL = 3;
 const DAILY_GOAL_XP = 30;
 const ACHIEVEMENT_XP = 20;
+export const LESSON_XP = 20;
+const LESSON_PERFECT_XP = 10;
 const CRIT_CHANCE = 0.12;
 const UNLOCK_RULES = {
   medio: { from: 'facil', count: 3 },
@@ -68,6 +71,7 @@ const defaults = () => ({
   dailyGoalDone: {},
   unlocked: { medio: false, dificil: false },
   drafts: {}, // { "id|lang": código }
+  lessons: {}, // { id: { tries, at? } } — `at` marca la lección como completada
   stats: { submissions: 0, successes: 0, runs: 0, crits: 0 },
   settings: { sound: true, lang: 'javascript' },
 });
@@ -163,6 +167,9 @@ export function nextChallenge(lang, afterId) {
   return rotated.find((c) => !isSolved(c.id)) || rotated.find((c) => !isSolved(c.id, lang) && c.id !== afterId) || null;
 }
 
+export const lessonDone = (id) => !!state.lessons[id]?.at;
+export const lessonsDone = () => LESSONS.filter((l) => lessonDone(l.id)).length;
+
 export function draftKey(id, lang) {
   return `${id}|${lang}`;
 }
@@ -195,6 +202,10 @@ export const ACHIEVEMENTS = [
   { id: 'critico', mark: '2×', name: '¡Crítico!', desc: 'Consigue un golpe crítico de XP', check: () => state.stats.crits >= 1 },
   { id: 'noctambulo', mark: '0h', name: 'Noctámbulo', desc: 'Resuelve un reto entre las 0:00 y las 5:00', check: (ctx) => ctx && ctx.hour < 5 },
   { id: 'madrugador', mark: '5h', name: 'Madrugador', desc: 'Resuelve un reto entre las 5:00 y las 8:00', check: (ctx) => ctx && ctx.hour >= 5 && ctx.hour < 8 },
+  { id: 'leccion-1', mark: 'AP1', name: 'Estudiante', desc: 'Completa tu primera lección', check: () => lessonsDone() >= 1 },
+  { id: 'leccion-6', mark: 'AP6', name: 'Estudioso', desc: 'Completa 6 lecciones', check: () => lessonsDone() >= 6 },
+  { id: 'academia', mark: 'APR', name: 'Académico', desc: 'Completa todas las lecciones', check: () => lessonsDone() >= LESSONS.length },
+  { id: 'teoria-practica', mark: 'T+P', name: 'Teoría y práctica', desc: 'Completa una lección y resuelve todos sus retos', check: () => LESSONS.some((l) => lessonDone(l.id) && l.challenges.every((id) => isSolved(id))) },
   { id: 'nivel-5', mark: 'L5', name: 'Explorador', desc: 'Alcanza el nivel 5', check: () => levelInfo(state.xp).level >= 5 },
   { id: 'nivel-10', mark: 'L10', name: 'Doble dígito', desc: 'Alcanza el nivel 10', check: () => levelInfo(state.xp).level >= 10 },
   { id: 'nivel-20', mark: 'L20', name: 'Leyenda', desc: 'Alcanza el nivel 20', check: () => levelInfo(state.xp).level >= 20 },
@@ -217,6 +228,27 @@ function checkAchievements(ctx) {
 }
 
 // ───────────── Eventos de juego ─────────────
+// Cuenta un ejercicio resuelto hoy: mantiene la racha y suma a la meta diaria.
+function recordDailyProgress(lines) {
+  const d = today();
+  let streakUp = false;
+  if (state.streak.lastDay !== d) {
+    state.streak.current = state.streak.lastDay === yesterday() ? state.streak.current + 1 : 1;
+    state.streak.lastDay = d;
+    state.streak.best = Math.max(state.streak.best, state.streak.current);
+    streakUp = true;
+  }
+  state.activity[d] = (state.activity[d] || 0) + 1;
+  let dailyGoal = false;
+  if (state.activity[d] >= DAILY_GOAL && !state.dailyGoalDone[d]) {
+    state.dailyGoalDone[d] = true;
+    state.xp += DAILY_GOAL_XP;
+    lines.push({ label: 'Meta diaria', add: DAILY_GOAL_XP });
+    dailyGoal = true;
+  }
+  return { streakUp, dailyGoal };
+}
+
 export function recordRun() {
   state.stats.runs++;
   save();
@@ -289,26 +321,7 @@ export function recordSolve({ challenge, lang, seconds }) {
 
   state.xp += total;
   state.solved[id] = { ...(state.solved[id] || {}), [lang]: { at: Date.now(), fails, seconds, hints, xp: total } };
-
-  // Racha diaria
-  const d = today();
-  let streakUp = false;
-  if (state.streak.lastDay !== d) {
-    state.streak.current = state.streak.lastDay === yesterday() ? state.streak.current + 1 : 1;
-    state.streak.lastDay = d;
-    state.streak.best = Math.max(state.streak.best, state.streak.current);
-    streakUp = true;
-  }
-
-  // Meta diaria
-  state.activity[d] = (state.activity[d] || 0) + 1;
-  let dailyGoal = false;
-  if (state.activity[d] >= DAILY_GOAL && !state.dailyGoalDone[d]) {
-    state.dailyGoalDone[d] = true;
-    state.xp += DAILY_GOAL_XP;
-    lines.push({ label: 'Meta diaria', add: DAILY_GOAL_XP });
-    dailyGoal = true;
-  }
+  const { streakUp, dailyGoal } = recordDailyProgress(lines);
 
   // Desbloqueo de dificultades
   const newTiers = [];
@@ -337,6 +350,40 @@ export function recordSolve({ challenge, lang, seconds }) {
     streak: state.streak.current,
     dailyGoal,
     newTiers,
+    achievements,
+  };
+}
+
+// Quiz de una lección. Solo el primer aprobado da XP; repetirlo después es práctica libre.
+export function recordQuiz(id, passed) {
+  const entry = (state.lessons[id] ||= { tries: 0 });
+  if (entry.at) return { repeat: true, passed };
+  entry.tries++;
+  if (!passed) {
+    save();
+    return { repeat: false, passed: false, tries: entry.tries };
+  }
+
+  const xpBefore = state.xp;
+  const levelBefore = levelInfo(xpBefore).level;
+  entry.at = Date.now();
+  const lines = [{ label: 'Lección completada', add: LESSON_XP }];
+  if (entry.tries === 1) lines.push({ label: 'Quiz perfecto a la primera', add: LESSON_PERFECT_XP });
+  state.xp += lines.reduce((n, l) => n + l.add, 0);
+
+  const achievements = checkAchievements();
+  for (const a of achievements) lines.push({ label: `Logro · ${a.name}`, add: ACHIEVEMENT_XP, achievement: true });
+
+  save();
+  return {
+    repeat: false,
+    passed: true,
+    lines,
+    xpBefore,
+    xpAfter: state.xp,
+    gained: state.xp - xpBefore,
+    levelBefore,
+    levelAfter: levelInfo(state.xp).level,
     achievements,
   };
 }

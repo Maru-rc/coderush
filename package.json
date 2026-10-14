@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "verify": "node scripts/verify.js"
+    "verify": "node scripts/verify.js && node scripts/verify-lessons.js"
   },
   "engines": {
     "node": ">=23.6"

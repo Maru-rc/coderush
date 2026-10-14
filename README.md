@@ -29,7 +29,15 @@ Abre http://localhost:3000. No hay dependencias que instalar.
 | Racha | Días seguidos resolviendo al menos un reto. Se avisa cuando está en peligro. |
 | Meta diaria | 3 retos al día dan +30 XP |
 | Desbloqueos | Medios: 3 fáciles resueltos. Difíciles: 4 medios resueltos. |
-| Logros | 29 logros, cada uno da +20 XP |
+| Logros | 33 logros, cada uno da +20 XP |
+
+## Aprender
+
+La sección **Aprender** (`#/aprender`) tiene 12 lecciones, una por concepto: variables, condicionales, bucles, textos, arreglos, recursión, diccionarios y conjuntos, pilas, matemática con enteros, búsqueda y ordenamiento, programación dinámica y matrices.
+
+- Cada lección explica el concepto con ejemplos en el lenguaje elegido y muestra su salida.
+- Al final hay un mini-quiz: aprobarlo da **+20 XP** (+10 si aciertas todo a la primera). Después queda como práctica libre.
+- Cada lección enlaza a sus retos para practicar, y cada reto muestra "Aprende el concepto" con enlaces a sus lecciones.
 
 El progreso se guarda en `data/progress.json`. Se puede reiniciar desde 📊 Estadísticas.
 
@@ -40,11 +48,15 @@ server.js              Servidor HTTP (solo escucha en 127.0.0.1)
 server/challenges.js   Catálogo de retos y tests
 server/runner.js       Ejecuta el código en un proceso aparte con límite de 6 s
 scripts/verify.js      npm run verify: comprueba los 43 retos con soluciones de referencia
+scripts/verify-lessons.js  ejecuta los ejemplos de las lecciones en los 3 lenguajes y compara su salida
+public/js/lessons.js   Contenido de la academia (lecciones, ejemplos y quizzes)
 public/                Interfaz (HTML, CSS y módulos ES, sin compilación)
 ```
 
 ### Añadir un reto
 
-Agrega un objeto a `server/challenges.js` con `id`, `fn` (en camelCase; para Python se convierte a snake_case), `params` con tipos de TypeScript, `returns` y sus `tests`. Usa `t()` para los tests visibles y `h()` para los ocultos. Después añade su solución de referencia en `scripts/verify.js` y ejecuta `npm run verify`.
+Agrega un objeto a `server/challenges.js` con `id`, `fn` (en camelCase; para Python se convierte a snake_case), `params` con tipos de TypeScript, `returns` y sus `tests`. Usa `t()` para los tests visibles y `h()` para los ocultos. Después añade su solución de referencia en `scripts/verify.js`, enlázalo desde al menos una lección (`challenges` en `public/js/lessons.js`) y ejecuta `npm run verify`.
 
-> ⚠️ El servidor ejecuta el código que escribes en tu máquina. Solo acepta conexiones locales y peticiones de la propia app. No lo expongas a internet.
+### Añadir una lección
+
+Agrega un objeto a `LESSONS` en `public/js/lessons.js` con `id`, `title`, `summary`, `challenges`, `sections` y `quiz`. Cada sección lleva su código (`{ js, ts?, py }`; TypeScript reutiliza JavaScript si se omite) y la salida exacta en `out`. Las preguntas del quiz con código deben imprimir el texto de su respuesta correcta. `npm run verify` lo comprueba todo.
