@@ -6,9 +6,26 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "verify": "node scripts/verify.js && node scripts/verify-lessons.js"
+    "verify": "node scripts/verify.js && node scripts/verify-lessons.js && node scripts/verify-nest.js"
   },
   "engines": {
     "node": ">=23.6"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.1.2",
+    "@nestjs/config": "12.0.1",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/jwt": "12.0.2",
+    "@nestjs/platform-express": "12.1.2",
+    "@nestjs/swagger": "12.0.2",
+    "@nestjs/testing": "12.1.2",
+    "@nestjs/typeorm": "12.0.2",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "sql.js": "1.14.2",
+    "typeorm": "1.1.1",
+    "typescript": "6.0.3"
   }
 }

@@ -62,9 +62,11 @@ function setupMonaco(monaco) {
     },
   });
   // TS: comprobación de tipos en vivo, ignorando "falta return" mientras escribes y variables sin usar.
+  // Para NestJS: decoradores activados y, como el editor no tiene los tipos de los paquetes, se ignoran
+  // "no encuentro el módulo" (2307, 2792) y "propiedad sin inicializar" (2564, típico de los DTOs).
   const ts = monaco.languages.typescript;
-  ts.typescriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [2355, 6133, 6196, 2393] });
-  ts.typescriptDefaults.setCompilerOptions({ target: ts.ScriptTarget.ES2022, strict: true, allowNonTsExtensions: true, lib: ['es2022'] });
+  ts.typescriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [2355, 6133, 6196, 2393, 2307, 2792, 2564, 1219] });
+  ts.typescriptDefaults.setCompilerOptions({ target: ts.ScriptTarget.ES2022, strict: true, allowNonTsExtensions: true, lib: ['es2022'], experimentalDecorators: true, emitDecoratorMetadata: true, module: ts.ModuleKind.ESNext });
   ts.javascriptDefaults.setDiagnosticsOptions({ diagnosticCodesToIgnore: [2393] });
   ts.javascriptDefaults.setCompilerOptions({ target: ts.ScriptTarget.ES2022, allowNonTsExtensions: true, lib: ['es2022'] });
 }

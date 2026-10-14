@@ -23,6 +23,7 @@
   --js: #f2d21b;
   --ts: #2f6fde;
   --py: #1b8a8a;
+  --nest: #e0234e;
   --editor: #171512;
   --display: 'Archivo', 'Arial Narrow', sans-serif;
   --sans: 'IBM Plex Sans', system-ui, sans-serif;
@@ -172,6 +173,7 @@ kbd { font-size: 0.66rem; font-weight: 500; padding: 1px 5px; border: 1.5px soli
 .bg-facil { background: var(--facil) !important; }
 .bg-medio { background: var(--medio) !important; }
 .bg-dificil { background: var(--dificil) !important; }
+.bg-nest { background: var(--nest) !important; }
 
 .lm { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 24px; height: 18px; padding: 0 4px; border: 1.5px solid var(--hair); color: var(--ink-3); font: 700 0.6rem var(--mono); }
 .lm.on { border-color: var(--ink); color: var(--ink); }
@@ -194,6 +196,8 @@ kbd { font-size: 0.66rem; font-weight: 500; padding: 1px 5px; border: 1.5px soli
 .home { max-width: 1240px; margin: 0 auto; padding: 30px 24px 90px; }
 .banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 24px; border: 2px solid var(--ink); background: var(--accent); box-shadow: var(--sh); font-weight: 500; }
 .banner .ico { width: 22px; height: 22px; flex: none; }
+.banner.warn { background: var(--warn-soft); border-color: var(--warn); box-shadow: 3px 3px 0 var(--warn); }
+.banner code { background: var(--card); }
 
 .board-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; padding-bottom: 22px; margin-bottom: 26px; border-bottom: 2px solid var(--ink); }
 .board-head h1 { margin: 6px 0 10px; font: 900 clamp(2.6rem, 7vw, 4.6rem)/0.9 var(--display); font-stretch: 125%; letter-spacing: -0.04em; text-transform: uppercase; }
@@ -483,6 +487,49 @@ a.tile:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink)
 .lesson-nav { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 40px; padding-top: 20px; border-top: 2px solid var(--ink); }
 .lesson-nav .btn { height: auto; min-height: 42px; padding: 8px 14px; white-space: normal; }
 
+/* ───────────── NestJS ───────────── */
+.nest-ledger { min-width: 280px; }
+.subnav { display: flex; gap: 0; margin-bottom: 28px; border-bottom: 2px solid var(--ink); }
+.subnav a { padding: 10px 18px; margin-bottom: -2px; border: 2px solid transparent; border-bottom: 0; font: 600 0.78rem var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); }
+.subnav a:hover { color: var(--ink); background: var(--paper-2); }
+.subnav a.on { border-color: var(--ink); background: var(--card); color: var(--ink); box-shadow: inset 0 4px 0 var(--nest); }
+.nest .tier:first-child { margin-top: 0; }
+.practice-note { grid-column: 1 / -1; padding: 14px 16px; border: 1.5px dashed var(--hair); color: var(--ink-2); font-size: 0.92rem; }
+
+.lib-intro { max-width: 70ch; margin-bottom: 18px; color: var(--ink-2); }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+.lib { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 18px; border: 2px solid var(--ink); background: var(--card); box-shadow: var(--sh); }
+.lib-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.lib-name { font: 700 1.05rem/1.25 var(--mono); word-break: break-word; }
+.lib p { font-size: 0.9rem; }
+.lib-when { color: var(--ink-2); }
+.lib-install { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; background: var(--editor); border: 2px solid var(--ink); }
+.lib-install code { flex: 1; min-width: 0; overflow-x: auto; padding: 0; border: 0; background: none; color: #c4d98a; font-size: 0.8rem; white-space: nowrap; }
+.lib-install code::before { content: '$ '; color: #7d766a; }
+.lib-install .btn { flex: none; height: 28px; box-shadow: none; }
+.lib-example summary { cursor: pointer; font: 600 0.74rem var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); }
+.lib-example summary:hover { color: var(--accent); }
+.lib-example[open] summary { margin-bottom: 10px; }
+.lib-example .codeblock { box-shadow: 2px 2px 0 var(--ink); }
+.lib-example .codeblock pre.code { font-size: 0.8rem; }
+.lib-links { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+
+.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.checks li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--hair); }
+.verb { flex: none; width: 52px; padding: 2px 0; border: 1.5px solid var(--ink); text-align: center; font: 700 0.62rem var(--mono); letter-spacing: 0.04em; }
+.verb-get { background: var(--pass-soft); }
+.verb-post { background: var(--hi); }
+.verb-patch { background: #dfe9fb; }
+.verb-delete { background: var(--fail-soft); }
+.verb-call { background: var(--paper-2); }
+.check-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.check-main code { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; padding: 0; font-size: 0.8rem; font-weight: 600; }
+.check-name { font-size: 0.8rem; color: var(--ink-3); }
+.check-exp { flex: none; font: 700 0.78rem var(--mono); color: var(--ink-2); }
+.test-head .req { padding: 0; border: 0; background: none; font-weight: 600; text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.test-head .test-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.tab .lang-dot { margin-right: 2px; }
+
 /* ───────────── Modales ───────────── */
 .overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: rgba(242, 238, 228, 0.88); opacity: 0; transition: opacity 0.15s; }
 .overlay.show { opacity: 1; }
@@ -585,6 +632,7 @@ a.tile:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink)
 @media (max-width: 1100px) {
   .feature-row { grid-template-columns: 1fr 1fr; }
   .ledger { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); }
+  .nest-ledger { grid-template-columns: repeat(3, 1fr); }
   .ledger div { flex-direction: column; align-items: flex-start; border-bottom: 0; border-right: 1.5px solid var(--hair); }
   .ledger div:last-child { border-right: 0; }
   .ledger dd { text-align: left; }
@@ -619,6 +667,13 @@ a.tile:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink)
   .home, .workspace, .brief, .lesson { padding-left: 16px; padding-right: 16px; }
   .quiz { padding: 16px; box-shadow: var(--sh); }
   .opts { grid-template-columns: 1fr; }
+  .lib-grid { grid-template-columns: 1fr; }
+  .subnav a { flex: 1; padding: 10px 6px; text-align: center; font-size: 0.68rem; letter-spacing: 0.04em; }
+  .nest-ledger { min-width: 0; width: 100%; grid-template-columns: repeat(3, 1fr); }
+  .nest-ledger div, .nest-ledger div:nth-child(-n + 2) { border-bottom: 0; border-right: 1.5px solid var(--hair); }
+  .nest-ledger div:last-child { border-right: 0; }
+  .test-head { flex-wrap: wrap; }
+  .test-head .req { max-width: none; }
   .learn-next { flex-wrap: wrap; gap: 14px; padding: 16px; box-shadow: var(--sh); }
   .learn-next-num { font-size: 2.4rem; }
   .learn-next-main { flex-basis: calc(100% - 70px); }

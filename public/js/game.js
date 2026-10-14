@@ -1,5 +1,6 @@
 // Motor de progresión: XP, niveles, rachas, combos, logros, meta diaria, desbloqueos y lecciones.
 import { LESSONS } from './lessons.js';
+import { NEST_LESSONS } from './nest-content.js';
 
 export const LANGS = {
   javascript: { label: 'JavaScript', short: 'JS', monaco: 'javascript' },
@@ -72,6 +73,7 @@ const defaults = () => ({
   unlocked: { medio: false, dificil: false },
   drafts: {}, // { "id|lang": código }
   lessons: {}, // { id: { tries, at? } } — `at` marca la lección como completada
+  nest: { solved: {}, failed: {} }, // actividades de NestJS: solved { id: { at, fails, hints, seconds, xp } }
   stats: { submissions: 0, successes: 0, runs: 0, crits: 0 },
   settings: { sound: true, lang: 'javascript' },
 });
@@ -79,6 +81,8 @@ const defaults = () => ({
 export let state = defaults();
 export let challenges = [];
 let byId = new Map();
+export let nestActivities = [];
+export const setNestActivities = (list) => (nestActivities = list);
 
 export async function init(list) {
   challenges = list;
@@ -169,6 +173,12 @@ export function nextChallenge(lang, afterId) {
 
 export const lessonDone = (id) => !!state.lessons[id]?.at;
 export const lessonsDone = () => LESSONS.filter((l) => lessonDone(l.id)).length;
+export const nestLessonsDone = () => NEST_LESSONS.filter((l) => lessonDone(l.id)).length;
+export const nestSolved = (id) => !!state.nest.solved[id];
+export const nestSolvedCount = () => nestActivities.filter((a) => nestSolved(a.id)).length;
+const nestHintKey = (id) => `nest:${id}`;
+export const nestHints = (id) => state.hints[nestHintKey(id)] || 0;
+export const recordNestHint = (id) => recordHint(nestHintKey(id));
 
 export function draftKey(id, lang) {
   return `${id}|${lang}`;
@@ -206,6 +216,10 @@ export const ACHIEVEMENTS = [
   { id: 'leccion-6', mark: 'AP6', name: 'Estudioso', desc: 'Completa 6 lecciones', check: () => lessonsDone() >= 6 },
   { id: 'academia', mark: 'APR', name: 'Académico', desc: 'Completa todas las lecciones', check: () => lessonsDone() >= LESSONS.length },
   { id: 'teoria-practica', mark: 'T+P', name: 'Teoría y práctica', desc: 'Completa una lección y resuelve todos sus retos', check: () => LESSONS.some((l) => lessonDone(l.id) && l.challenges.every((id) => isSolved(id))) },
+  { id: 'nest-1', mark: 'N1', name: 'Hola, Nest', desc: 'Completa tu primera actividad de NestJS', check: () => nestSolvedCount() >= 1 },
+  { id: 'nest-5', mark: 'N5', name: 'Backend en marcha', desc: 'Completa 5 actividades de NestJS', check: () => nestSolvedCount() >= 5 },
+  { id: 'nest-todas', mark: 'NST', name: 'Arquitecto Nest', desc: 'Completa todas las actividades de NestJS', check: () => nestActivities.length > 0 && nestSolvedCount() >= nestActivities.length },
+  { id: 'nest-teoria', mark: 'NLX', name: 'Teoría de Nest', desc: 'Completa todas las lecciones de NestJS', check: () => nestLessonsDone() >= NEST_LESSONS.length },
   { id: 'nivel-5', mark: 'L5', name: 'Explorador', desc: 'Alcanza el nivel 5', check: () => levelInfo(state.xp).level >= 5 },
   { id: 'nivel-10', mark: 'L10', name: 'Doble dígito', desc: 'Alcanza el nivel 10', check: () => levelInfo(state.xp).level >= 10 },
   { id: 'nivel-20', mark: 'L20', name: 'Leyenda', desc: 'Alcanza el nivel 20', check: () => levelInfo(state.xp).level >= 20 },
@@ -384,6 +398,57 @@ export function recordQuiz(id, passed) {
     gained: state.xp - xpBefore,
     levelBefore,
     levelAfter: levelInfo(state.xp).level,
+    achievements,
+  };
+}
+
+// Actividad de NestJS. Sin combo ni crítico: el XP depende de la dificultad, el primer intento y las pistas.
+export function recordNestResult(activity, passed, seconds) {
+  const { id, difficulty } = activity;
+  state.stats.submissions++;
+  if (!passed) {
+    state.nest.failed[id] = (state.nest.failed[id] || 0) + 1;
+    save();
+    return { passed: false, fails: state.nest.failed[id] };
+  }
+  state.stats.successes++;
+  if (state.nest.solved[id]) {
+    save();
+    return { passed: true, repeat: true };
+  }
+
+  const xpBefore = state.xp;
+  const levelBefore = levelInfo(xpBefore).level;
+  const fails = state.nest.failed[id] || 0;
+  const hints = nestHints(id);
+  const base = activity.xp;
+  const lines = [{ label: `Base ${DIFFICULTY[difficulty].label.toLowerCase()} · NestJS`, add: base }];
+  if (fails === 0) lines.push({ label: 'Primer intento', add: Math.round(base * 0.5) });
+  if (!hints) lines.push({ label: 'Sin pistas', add: Math.round(base * 0.25) });
+  const total = lines.reduce((n, l) => n + l.add, 0);
+  state.xp += total;
+  state.nest.solved[id] = { at: Date.now(), fails, hints, seconds, xp: total };
+  const { streakUp, dailyGoal } = recordDailyProgress(lines);
+
+  const achievements = checkAchievements({ seconds, fails, hour: new Date().getHours() });
+  for (const a of achievements) lines.push({ label: `Logro · ${a.name}`, add: ACHIEVEMENT_XP, achievement: true });
+
+  save();
+  return {
+    passed: true,
+    repeat: false,
+    lines,
+    xpBefore,
+    xpAfter: state.xp,
+    gained: state.xp - xpBefore,
+    levelBefore,
+    levelAfter: levelInfo(state.xp).level,
+    crit: false,
+    combo: state.combo,
+    streakUp,
+    streak: state.streak.current,
+    dailyGoal,
+    newTiers: [],
     achievements,
   };
 }

@@ -2,6 +2,7 @@ import * as game from './game.js';
 import { LANGS, DIFFICULTY, DAILY_GOAL, ACHIEVEMENTS, LESSON_XP, levelInfo, state } from './game.js';
 import { LESSONS, lessonById, lessonsForChallenge, pick } from './lessons.js';
 import { highlightLines } from './highlight.js';
+import { NEST_LESSONS, NEST_LIBRARIES, nestLessonById, nestLessonsForActivity } from './nest-content.js';
 import { createEditor } from './editor.js';
 import { explain } from './errors.js';
 import { icon } from './icons.js';
@@ -18,6 +19,22 @@ const dias = (n) => `${n} día${n === 1 ? '' : 's'}`;
 
 const api = {
   challenges: () => fetch('/api/challenges').then((r) => r.json()),
+  async nest() {
+    const r = await fetch('/api/nest');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  },
+  async nestRun(activityId, code) {
+    let r;
+    try {
+      r = await fetch('/api/nest/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activityId, code }) });
+    } catch {
+      throw new Error('Sin conexión con el servidor. Comprueba que la terminal con `npm start` siga abierta.');
+    }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `El servidor respondió con un error (${r.status}).`);
+    return data;
+  },
   async run(challengeId, language, code, mode) {
     let r;
     try {
@@ -134,8 +151,11 @@ function route() {
   if ((m = hash.match(/^#\/reto\/([\w-]+)/))) renderChallenge(m[1]);
   else if ((m = hash.match(/^#\/aprender\/([\w-]+)/))) renderLesson(TRACKS.aprender, m[1]);
   else if (/^#\/aprender\/?$/.test(hash)) renderLearn();
+  else if ((m = hash.match(/^#\/nest\/leccion\/([\w-]+)/))) renderLesson(TRACKS.nest, m[1]);
+  else if ((m = hash.match(/^#\/nest\/actividad\/([\w-]+)/))) renderNestActivity(m[1]);
+  else if ((m = hash.match(/^#\/nest(?:\/(actividades|librerias))?\/?$/))) renderNest(m[1] ?? 'lecciones');
   else renderHome();
-  const section = hash.startsWith('#/aprender') ? 'aprender' : 'retos';
+  const section = hash.startsWith('#/aprender') ? 'aprender' : hash.startsWith('#/nest') ? 'nest' : 'retos';
   document.querySelectorAll('.topnav a').forEach((a) => a.classList.toggle('on', a.dataset.nav === section));
   scrollTo(0, 0);
 }
@@ -727,7 +747,7 @@ async function renderChallenge(id) {
 }
 
 // ───────────── Vista: academia ─────────────
-// Vista de lecciones genérica: cada ruta de aprendizaje define su lista, sus enlaces y su práctica.
+// Las lecciones de "Aprender" y las de NestJS comparten vista; cada ruta define su lista y su práctica.
 const TRACKS = {
   aprender: {
     list: LESSONS,
@@ -741,6 +761,25 @@ const TRACKS = {
       return {
         html: list.map((c) => tileHtml(c, lang)).join(''),
         count: `${list.filter((c) => game.isSolved(c.id, lang)).length}/${list.length} en ${LANGS[lang].label}`,
+      };
+    },
+  },
+  nest: {
+    list: NEST_LESSONS,
+    home: '#/nest',
+    homeLabel: 'NestJS',
+    kicker: 'NestJS · ',
+    fixedLang: 'TypeScript',
+    href: (l) => `#/nest/leccion/${l.id}`,
+    lang: () => 'typescript',
+    practice: (l) => ({ done: l.activities.filter(game.nestSolved).length, total: l.activities.length, unit: 'actividades' }),
+    practiceHtml(l) {
+      const list = game.nestActivities.filter((a) => l.activities.includes(a.id));
+      return {
+        html: list.length
+          ? list.map(nestTileHtml).join('')
+          : '<p class="practice-note">Esta lección no tiene actividad propia: lo que enseña es justo cómo CodeRush comprueba tus actividades por dentro.</p>',
+        count: list.length ? `${list.filter((a) => game.nestSolved(a.id)).length}/${list.length} completadas` : '',
       };
     },
   },
@@ -992,6 +1031,386 @@ function renderLesson(track, id) {
   renderPractice();
 }
 
+// ───────────── Vista: NestJS ─────────────
+// outdated: el servidor no tiene la API de NestJS (sigue abierto un `npm start` anterior a la actualización).
+let nestStatus = { ready: false, missing: [], outdated: true };
+const nestNum = (a) => pad(game.nestActivities.indexOf(a) + 1);
+const nestDraftKey = (id) => `nest:${id}|typescript`;
+const NEST_TABS = [['lecciones', 'Lecciones', '#/nest'], ['actividades', 'Actividades', '#/nest/actividades'], ['librerias', 'Librerías', '#/nest/librerias']];
+
+function nestTileHtml(a) {
+  const solved = game.nestSolved(a.id);
+  return `<a class="tile ${solved ? 'solved' : ''}" href="#/nest/actividad/${a.id}">
+    <div class="tile-top"><span class="tile-num">${nestNum(a)}</span><span class="tile-xp">${solved ? icon.check : `+${a.xp} XP`}</span></div>
+    <h3>${esc(a.title)}</h3>
+    <div class="tile-foot"><span>${esc(a.category)}</span><span>${a.tests.length} pruebas</span></div>
+  </a>`;
+}
+
+function renderNest(tab) {
+  const track = TRACKS.nest;
+  const acts = game.nestActivities;
+  app.innerHTML = `
+  <section class="home nest">
+    <header class="board-head">
+      <div>
+        <div class="label">Ruta backend · TypeScript</div>
+        <h1>NestJS <span class="h-count">${pad(game.nestSolvedCount())}/${pad(acts.length)}</span></h1>
+        <p class="lead">El framework de backend más usado con TypeScript. Aprende cada pieza en las lecciones, practícala en actividades que se ejecutan con <b>Nest de verdad</b> y conoce las librerías que encontrarás en cualquier proyecto.</p>
+      </div>
+      <dl class="ledger nest-ledger">
+        <div><dt>Lecciones</dt><dd>${game.nestLessonsDone()}<small>/${NEST_LESSONS.length}</small></dd></div>
+        <div><dt>Actividades</dt><dd>${game.nestSolvedCount()}<small>/${acts.length}</small></dd></div>
+        <div><dt>Librerías</dt><dd>${NEST_LIBRARIES.length}<small>fichas</small></dd></div>
+      </dl>
+    </header>
+    ${nestStatus.ready ? '' : `<div class="banner warn">${icon.lock}<span>${nestStatus.outdated
+      ? 'El servidor no tiene todavía la sección de NestJS: <b>reinicia <code>npm start</code></b> (Ctrl+C en su terminal y vuelve a ejecutarlo) y recarga la página. Mientras tanto puedes leer las lecciones y las librerías.'
+      : 'Las actividades necesitan las dependencias de NestJS: ejecuta <code>npm install</code> en la carpeta del proyecto y reinicia <code>npm start</code>. Las lecciones y las librerías funcionan igualmente.'}</span></div>`}
+    <nav class="subnav" aria-label="Secciones de NestJS">
+      ${NEST_TABS.map(([k, label, href]) => `<a href="${href}" class="${k === tab ? 'on' : ''}">${label}</a>`).join('')}
+    </nav>
+    <div id="nestTab"></div>
+  </section>`;
+
+  const body = $('#nestTab');
+  if (tab === 'lecciones') {
+    body.innerHTML = `${nextLessonCard(track)}<div class="lesson-grid">${NEST_LESSONS.map((l) => lessonCard(l, track)).join('')}</div>`;
+  } else if (tab === 'actividades') {
+    body.innerHTML = acts.length
+      ? Object.entries(DIFFICULTY).map(([tier, d]) => {
+          const list = acts.filter((a) => a.difficulty === tier);
+          if (!list.length) return '';
+          return `<section class="tier">
+            <header class="tier-head"><h2>${diffSq(tier)}${d.label}</h2><span class="label">${list.filter((a) => game.nestSolved(a.id)).length}/${list.length} completadas</span></header>
+            <div class="grid">${list.map(nestTileHtml).join('')}</div>
+          </section>`;
+        }).join('')
+      : `<p class="empty">${nestStatus.outdated ? 'Reinicia <code>npm start</code> y recarga la página para ver las actividades.' : 'No se pudieron cargar las actividades. Comprueba que el servidor siga en marcha.'}</p>`;
+  } else {
+    body.innerHTML = `
+      <p class="lib-intro">Las librerías que aparecen en casi cualquier proyecto Nest. Las marcadas con <b>actividad</b> se pueden practicar aquí con el paquete real.</p>
+      <div class="lib-grid">${NEST_LIBRARIES.map(libCard).join('')}</div>`;
+    body.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-copy]');
+      if (!b) return;
+      try {
+        await navigator.clipboard.writeText(b.dataset.copy);
+        sfx.click();
+        toast({ icon: icon.check, title: 'Comando copiado', text: b.dataset.copy, kind: 'good', duration: 2200 });
+      } catch {
+        toast({ icon: '!', title: 'No se pudo copiar', text: 'Selecciona el comando y cópialo a mano.', kind: 'bad' });
+      }
+    });
+  }
+}
+
+function libCard(lib) {
+  const lesson = lib.lesson && nestLessonById.get(lib.lesson);
+  const activity = lib.activity && game.nestActivities.find((a) => a.id === lib.activity);
+  return `<article class="lib">
+    <div class="lib-tags"><span class="tag">${esc(lib.category)}</span>${activity ? '<span class="tag hi">Con actividad</span>' : ''}</div>
+    <h3 class="lib-name">${esc(lib.name)}</h3>
+    <p>${lib.what}</p>
+    <p class="lib-when"><b>Cuándo usarla:</b> ${lib.when}</p>
+    <div class="lib-install"><code>${esc(lib.install)}</code><button class="btn small" data-copy="${esc(lib.install)}" title="Copiar el comando">Copiar</button></div>
+    <details class="lib-example"><summary>Ver ejemplo</summary>${codeBlock(lib.snippet, 'typescript')}</details>
+    ${lesson || activity ? `<div class="lib-links">
+      ${lesson ? `<a class="concept" href="#/nest/leccion/${lesson.id}">${icon.book}<span>${esc(lesson.title)}</span></a>` : ''}
+      ${activity ? `<a class="concept" href="#/nest/actividad/${activity.id}">${game.nestSolved(activity.id) ? icon.check : icon.play}<span>${esc(activity.title)}</span></a>` : ''}
+    </div>` : ''}
+  </article>`;
+}
+
+const reqLine = (t) => (t.req ? `${t.req.method} ${t.req.path}` : `${t.call.provider}.${t.call.method}(${(t.call.args ?? []).map((x) => JSON.stringify(x)).join(', ')})`);
+const short = (v, max = 260) => {
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+};
+function expectText(t) {
+  const e = t.expect;
+  if (t.call) return e.throws ? `lanza ${e.throws}` : short(e.value ?? e.match);
+  const body = e.body !== undefined ? ` · ${short(e.body)}` : e.match !== undefined ? ` · contiene ${short(e.match)}` : '';
+  return `${e.status}${body}`;
+}
+function actualText(t) {
+  const a = t.actual;
+  if (!a) return null;
+  if ('threw' in a) return `lanzó ${a.threw}`;
+  if ('value' in a) return short(a.value);
+  return `${a.status}${a.body != null && a.body !== '' ? ` · ${short(a.body)}` : ''}`;
+}
+
+async function renderNestActivity(id) {
+  const a = game.nestActivities.find((x) => x.id === id);
+  if (!a) {
+    toast({ icon: '?', title: 'Esa actividad no existe', text: 'Te llevamos a la lista de actividades.', kind: 'bad' });
+    location.hash = '#/nest/actividades';
+    return;
+  }
+  let busy = false;
+  let editor = null;
+  const startTime = Date.now();
+
+  app.innerHTML = `
+  <section class="arena">
+    <aside class="brief" id="brief"></aside>
+    <div class="workspace">
+      <div class="ws-head">
+        <div class="tabs"><span class="tab on"><i class="lang-dot bg-typescript"></i>solucion.ts</span></div>
+        <button class="btn small" id="btnReset" title="Restaurar el código inicial">${icon.reset} Reiniciar</button>
+      </div>
+      <div class="editor" id="editor"><div class="editor-loading">Cargando editor…</div></div>
+      <div class="actions">
+        <span class="keys">Arranca tu AppModule con NestJS y ejecuta las ${a.tests.length} pruebas</span>
+        <button class="btn primary" id="btnSubmit">${icon.play} Ejecutar pruebas <kbd>Ctrl ↵</kbd></button>
+      </div>
+      <div class="results" id="results">
+        <div class="results-empty">
+          <span class="label">Resultados</span>
+          <p>Completa el código y pulsa <b>Ejecutar pruebas</b>. CodeRush compilará tu TypeScript, arrancará la aplicación y le hará las peticiones de la izquierda.</p>
+        </div>
+      </div>
+    </div>
+  </section>`;
+
+  const brief = $('#brief');
+  const results = $('#results');
+
+  function renderBrief() {
+    const hintsShown = game.nestHints(a.id);
+    const solved = game.nestSolved(a.id);
+    const lessons = nestLessonsForActivity(a.id);
+    brief.innerHTML = `
+      <div class="brief-top">
+        <a href="#/nest/actividades" class="back">${icon.arrowLeft} Actividades</a>
+        <span class="tag">NestJS</span>
+      </div>
+      <div class="brief-id">
+        <span class="label">Nº ${nestNum(a)}</span>
+        <span class="tag">${diffSq(a.difficulty)}${DIFFICULTY[a.difficulty].label}</span>
+        <span class="tag">${esc(a.category)}</span>
+      </div>
+      <h1>${esc(a.title)}</h1>
+      <p class="reward-line ${solved ? 'done' : ''}">
+        ${solved
+          ? `${icon.check} Actividad completada. Puedes seguir practicando: ya no suma XP.`
+          : `<mark>+${a.xp} XP</mark> base. Bonus si pasa a la primera y sin pistas.`}
+      </p>
+      <div class="desc">${a.description}</div>
+
+      <section class="sec">
+        <h4 class="label">Lo que se comprueba</h4>
+        <ol class="checks">
+          ${a.tests.map((t) => `<li>
+            <span class="verb ${t.req ? `verb-${t.req.method.toLowerCase()}` : 'verb-call'}">${t.req ? t.req.method : 'DI'}</span>
+            <span class="check-main"><code>${esc(t.req ? t.req.path : `${t.call.provider}.${t.call.method}()`)}</code><span class="check-name">${esc(t.name)}</span></span>
+            <span class="check-exp">${t.req ? t.expect.status : '✓'}</span>
+          </li>`).join('')}
+        </ol>
+        <p class="footnote">Las pruebas se ejecutan en orden sobre la misma app. Exporta <code>configurar(app)</code> si necesitas configurarla como en main.ts.</p>
+      </section>
+
+      <section class="sec">
+        <h4 class="label">Aprende el concepto</h4>
+        <div class="concepts">
+          ${lessons.map((l) => `<a class="concept ${game.lessonDone(l.id) ? 'done' : ''}" href="#/nest/leccion/${l.id}">${game.lessonDone(l.id) ? icon.check : icon.book}<span>${esc(l.title)}</span></a>`).join('')}
+        </div>
+      </section>
+
+      <section class="sec">
+        <h4 class="label">Pistas ${hintsShown}/${a.hints.length}</h4>
+        <div class="hints">
+          ${a.hints.slice(0, hintsShown).map((h, i) => `<div class="hint"><span class="hint-n">${i + 1}</span><span>${h}</span></div>`).join('')}
+          ${hintsShown < a.hints.length
+            ? `<button class="btn small" id="btnHint">${icon.bulb} Ver pista ${hintsShown + 1}${hintsShown === 0 ? ' <span class="muted">· pierdes el bonus sin pistas</span>' : ''}</button>`
+            : ''}
+        </div>
+      </section>`;
+    $('#btnHint')?.addEventListener('click', () => {
+      sfx.click();
+      game.recordNestHint(a.id);
+      renderBrief();
+    });
+  }
+  renderBrief();
+
+  editor = await createEditor($('#editor'), {
+    language: 'typescript',
+    value: state.drafts[nestDraftKey(a.id)] ?? a.starter,
+    onChange: (v) => {
+      state.drafts[nestDraftKey(a.id)] = v;
+      game.save();
+    },
+    onRun: () => execute(),
+    onSubmit: () => execute(),
+  });
+  if (!location.hash.includes(a.id)) return editor.dispose();
+  cleanup.push(() => editor.dispose());
+  editor.focus();
+
+  $('#btnReset').addEventListener('click', () => {
+    if (!confirm('¿Restaurar el código inicial? Perderás lo que has escrito en esta actividad.')) return;
+    delete state.drafts[nestDraftKey(a.id)];
+    editor.setValue(a.starter);
+    editor.clearMarks();
+    game.save();
+  });
+  $('#btnSubmit').addEventListener('click', () => execute());
+  results.addEventListener('click', (e) => {
+    const link = e.target.closest('[data-line]');
+    if (link) editor.goTo(Number(link.dataset.line));
+  });
+
+  async function execute() {
+    if (busy) return;
+    const code = editor.getValue();
+    if (!code.trim() || code.trim() === a.starter.trim()) {
+      results.innerHTML = `<div class="notice warn"><b>${code.trim() ? 'Todavía tienes el código inicial.' : 'El editor está vacío.'}</b><p>${code.trim() ? 'Completa lo que piden los comentarios antes de ejecutar. Esto no cuenta como intento.' : 'Pulsa <b>Reiniciar</b> para recuperar el código inicial.'}</p></div>`;
+      shake(results);
+      sfx.testFail();
+      return;
+    }
+    busy = true;
+    editor.clearMarks();
+    const btn = $('#btnSubmit');
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    results.innerHTML = '<div class="running"><span class="spinner"></span>Compilando y arrancando tu aplicación Nest…</div>';
+    const stopCharge = sfx.submitStart();
+    const started = performance.now();
+    try {
+      const res = await api.nestRun(a.id, code);
+      await wait(Math.max(0, 600 - (performance.now() - started)));
+      stopCharge();
+      if (res.fatalKind === 'setup') {
+        results.innerHTML = errorBox({ heading: 'Faltan dependencias', text: rich(res.fatal) });
+        sfx.error();
+        return;
+      }
+      await showResults(res);
+      await onDone(res);
+    } catch (err) {
+      stopCharge();
+      sfx.error();
+      results.innerHTML = errorBox({ heading: 'No se pudo ejecutar', text: rich(err.message) });
+    } finally {
+      busy = false;
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+    }
+  }
+
+  function fatalHtml(res) {
+    const headings = { notFound: 'Falta el módulo', timeout: 'Tiempo agotado', overflow: 'Demasiada salida', spawn: 'No se pudo ejecutar', syntax: 'Error de sintaxis' };
+    if (res.fatalKind !== 'crash' && res.fatalKind !== 'syntax') return errorBox({ heading: headings[res.fatalKind] || 'Error', text: rich(res.fatal) });
+    const ex = res.fatalHint || explain(res.fatalError || res.fatal, 'typescript') || {
+      title: 'Tu código no se pudo ejecutar.',
+      tip: 'Lee el mensaje original de abajo: la primera línea dice qué falló y la siguiente, en qué línea de solucion.ts.',
+    };
+    return errorBox({ heading: res.fatalHeading || headings[res.fatalKind], line: res.fatalLine, ex, original: res.fatal });
+  }
+
+  async function showResults(res) {
+    results.innerHTML = `
+      <div class="res-head">
+        <span class="label">Pruebas</span>
+        <span class="res-count"><b id="resCount">0</b>/${res.total} pruebas</span>
+        <span class="res-time">${res.ms} ms</span>
+      </div>
+      <div class="segments" id="segments">${res.tests.map(() => '<i></i>').join('')}</div>
+      ${res.fatal ? fatalHtml(res) : ''}
+      <div class="tests" id="tests"></div>
+      <div id="resFoot"></div>`;
+    const firstErr = res.tests.find((t) => t.line);
+    if (res.fatalLine) editor.markError(res.fatalLine, stripTags(res.fatalHint?.title ?? res.fatalError ?? 'Error'));
+    else if (firstErr) editor.markError(firstErr.line, stripTags(firstErr.hint?.title ?? firstErr.error?.split('\n')[0] ?? 'Error'));
+
+    const segEls = results.querySelectorAll('#segments i');
+    const list = $('#tests');
+    const delay = Math.max(70, Math.min(200, 1400 / Math.max(1, res.tests.length)));
+    let passCount = 0;
+    const anyRan = res.tests.some((t) => t.status !== 'skipped');
+    for (const t of res.tests) {
+      if (!anyRan) break;
+      await wait(delay);
+      segEls[t.index].className = t.passed ? 'pass' : t.status === 'skipped' ? 'skip' : 'fail';
+      if (t.passed) {
+        passCount++;
+        $('#resCount').textContent = passCount;
+        sfx.testPass(passCount - 1, passCount === res.total);
+      } else if (t.status !== 'skipped') sfx.testFail();
+      list.insertAdjacentHTML('beforeend', nestTestHtml(t));
+    }
+    if (res.fatal && !anyRan) {
+      sfx.error();
+      shake(results);
+    }
+    const extra = [];
+    if (res.console) extra.push(`<div class="console"><div class="console-head">Consola</div><pre>${esc(res.console)}</pre></div>`);
+    if (res.stderr) extra.push(`<div class="console"><div class="console-head">Avisos (stderr)</div><pre>${esc(res.stderr)}</pre></div>`);
+    $('#resFoot').innerHTML = extra.join('');
+  }
+
+  function nestTestHtml(t) {
+    const mark = { pass: icon.check, fail: icon.x, error: '!', timeout: icon.clock, skipped: '–' }[t.status];
+    const ms = typeof t.ms === 'number' ? `<span class="ms">${t.ms < 1 ? '<1' : Math.round(t.ms)} ms</span>` : '';
+    const lineLink = t.line ? `<button class="line-link" data-line="${t.line}">Línea ${t.line} ${icon.arrowRight}</button>` : '';
+    let body = '';
+    if (!t.passed && t.status !== 'skipped') {
+      if (t.req?.body !== undefined) body += `<div class="kv"><span>Cuerpo</span><code>${esc(short(t.req.body))}</code></div>`;
+      if (t.req?.headers) body += `<div class="kv"><span>Cabeceras</span><code>${esc(short(t.req.headers))}</code></div>`;
+      body += `<div class="kv"><span>Esperado</span><code>${esc(expectText(t))}</code></div>`;
+      const got = actualText(t);
+      if (got) body += `<div class="kv"><span>Obtenido</span><code class="bad">${esc(got)}</code></div>`;
+      if (t.diagnosis) body += `<p class="note">${rich(t.diagnosis)}</p>`;
+      if (t.error) body += errorBox({ ex: t.hint || explain(t.error, 'typescript'), original: t.error, compact: true });
+    }
+    if (t.status === 'timeout' && t.diagnosis) body += `<p class="note warn">${rich(t.diagnosis)}</p>`;
+    if (t.logs) body += `<div class="console mini"><div class="console-head">Salida</div><pre>${esc(t.logs)}</pre></div>`;
+    return `<div class="test ${t.status}"><div class="test-head"><span class="ti">${mark}</span><span>${pad(t.index + 1)}</span><code class="req">${esc(reqLine(t))}</code><span class="test-name">${esc(t.name)}</span>${lineLink}${ms}</div>${body ? `<div class="test-body">${body}</div>` : ''}</div>`;
+  }
+
+  async function onDone(res) {
+    const seconds = (Date.now() - startTime) / 1000;
+    const reward = game.recordNestResult(a, res.allPassed, seconds);
+    if (res.allPassed) {
+      if (reward.repeat) {
+        sfx.runPass();
+        confettiFrom(results, { count: 50, power: 0.7 });
+        footNote('Todo correcto otra vez. Esta actividad ya estaba completada, así que no suma XP.', 'good');
+        updateHud({ animate: true });
+        return;
+      }
+      const nextAct = game.nestActivities.find((x, i) => i > game.nestActivities.indexOf(a) && !game.nestSolved(x.id)) || game.nestActivities.find((x) => !game.nestSolved(x.id));
+      await celebrate(reward, {
+        label: 'Actividad superada',
+        title: a.title,
+        sub: `NestJS · Nº ${nestNum(a)} · ${a.category}`,
+        secondary: { label: 'Actividades', href: '#/nest/actividades' },
+        primary: nextAct ? { label: 'Siguiente actividad', href: `#/nest/actividad/${nextAct.id}` } : null,
+      });
+      renderBrief();
+      return;
+    }
+    if (!res.fatal) {
+      await wait(150);
+      if (res.passed / res.total >= 0.6) sfx.nearMiss();
+      else sfx.fail();
+      shake(results);
+      const missing = res.total - res.passed;
+      if (res.passed / res.total >= 0.6) footNote(`¡Casi! Solo ${missing === 1 ? 'falla 1 prueba' : `fallan ${missing} pruebas`}.`, 'warn');
+    }
+    if (reward.fails === 3 && game.nestHints(a.id) < a.hints.length) {
+      toast({ icon: icon.bulb, title: '¿Atascado?', text: 'Una pista o la lección relacionada pueden desbloquearte.', kind: 'info' });
+    }
+  }
+
+  function footNote(html, kind) {
+    $('#resFoot')?.insertAdjacentHTML('afterbegin', `<div class="notice ${kind}">${html}</div>`);
+  }
+}
+
 // ───────────── Celebración: el ticket ─────────────
 function challengeTicket(c, lang) {
   const other = Object.keys(LANGS).find((k) => !game.isSolved(c.id, k));
@@ -1189,6 +1608,8 @@ function showStats() {
     const n = Object.values(state.solved).filter((x) => x[k]).length;
     return `<div class="bar-row"><span>${l.label}</span><div class="meter"><i class="bg-${k}" style="width:${(n / total) * 100}%"></i></div><b>${n}</b></div>`;
   });
+  const nestTotal = game.nestActivities.length;
+  if (nestTotal) perLang.push(`<div class="bar-row"><span>NestJS</span><div class="meter"><i class="bg-nest" style="width:${(game.nestSolvedCount() / nestTotal) * 100}%"></i></div><b>${game.nestSolvedCount()}/${nestTotal}</b></div>`);
   const perDiff = Object.entries(DIFFICULTY).map(([k, d]) => {
     const all = game.challenges.filter((c) => c.difficulty === k);
     const n = all.filter((c) => game.isSolved(c.id)).length;
@@ -1245,6 +1666,7 @@ $('#streakIcon').innerHTML = icon.flame;
 $('#btnStats').innerHTML = icon.chart;
 $('#navRetosIco').innerHTML = icon.grid;
 $('#navAprenderIco').innerHTML = icon.book;
+$('#navNestIco').innerHTML = icon.server;
 $('#btnAchievements').addEventListener('click', () => (sfx.click(), showAchievements()));
 $('#btnStats').addEventListener('click', () => (sfx.click(), showStats()));
 $('#btnSound').addEventListener('click', () => {
@@ -1259,7 +1681,11 @@ $('#streak').addEventListener('click', showStats);
 
 async function boot() {
   try {
-    const list = await api.challenges();
+    const [list, nest] = await Promise.all([api.challenges(), api.nest().catch(() => null)]);
+    if (nest) {
+      nestStatus = nest.status;
+      game.setNestActivities(nest.activities);
+    }
     await game.init(list);
   } catch {
     app.innerHTML = `<div class="loading">${errorBoxStandalone()}</div>`;

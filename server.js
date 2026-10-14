@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { challenges, challengeById, publicChallenge } from './server/challenges.js';
 import { runChallenge, LANGS } from './server/runner.js';
+import { nestActivities, nestActivityById, publicNestActivity } from './server/nest/activities.js';
+import { runNestActivity, nestStatus } from './server/nest/runner.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -23,6 +25,7 @@ const MIME = {
 };
 
 const publicList = JSON.stringify(challenges.map(publicChallenge));
+const publicNestList = nestActivities.map(publicNestActivity);
 
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -79,6 +82,18 @@ async function handleApi(req, res, pathname) {
     if (!LANGS.includes(body.language)) return send(res, 400, JSON.stringify({ error: 'Lenguaje no soportado' }));
     const mode = body.mode === 'submit' ? 'submit' : 'run';
     const result = await runChallenge(challenge, body.language, String(body.code ?? ''), mode);
+    return send(res, 200, JSON.stringify(result));
+  }
+
+  if (pathname === '/api/nest' && req.method === 'GET') {
+    return send(res, 200, JSON.stringify({ status: nestStatus(), activities: publicNestList }));
+  }
+
+  if (pathname === '/api/nest/run' && req.method === 'POST') {
+    const body = JSON.parse(await readBody(req));
+    const activity = nestActivityById.get(body.activityId);
+    if (!activity) return send(res, 404, JSON.stringify({ error: 'Actividad no encontrada' }));
+    const result = await runNestActivity(activity, String(body.code ?? ''));
     return send(res, 200, JSON.stringify(result));
   }
 
